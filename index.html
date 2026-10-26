@@ -1,0 +1,785 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+</head>
+<body style="margin:0">
+<title>センサー巻きソフト</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;800&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap">
+<style>
+/* Layout: one full-screen 3D stage; HUD floats on top (score top-left, meters top-right, input + pour button along the bottom). Single light "ice cream stand" look on purpose. */
+:root {
+  --sky: #cfe7f3;
+  --sky-hi: #f3fafd;
+  --ink: #1c3352;
+  --ink-soft: #4d6582;
+  --cream: #fff4dc;
+  --berry: #d94f74;
+  --mint: #23917f;
+  --panel: rgba(255, 255, 255, 0.78);
+  --line: rgba(28, 51, 82, 0.14);
+  --font-display: "M PLUS Rounded 1c", "Hiragino Maru Gothic ProN", "Arial Rounded MT Bold", system-ui, sans-serif;
+  --font-body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", system-ui, sans-serif;
+  color-scheme: light;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body {
+  background: linear-gradient(180deg, var(--sky-hi) 0%, var(--sky) 70%);
+  color: var(--ink);
+  font-family: var(--font-body);
+  overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#app { position: relative; height: 100%; overflow: hidden; }
+#stage { position: absolute; inset: 0; display: block; width: 100%; height: 100%; }
+#hud {
+  position: absolute; inset: 0; pointer-events: none;
+  display: flex; flex-direction: column; justify-content: space-between;
+  padding-block: 14px 16px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.row { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.score .label, .meter .label, .src .label { font-size: 11px; letter-spacing: .08em; color: var(--ink-soft); }
+.score .height { font-family: var(--font-display); font-weight: 800; font-size: clamp(34px, 9vw, 52px); line-height: 1; font-variant-numeric: tabular-nums; }
+.score .height small { font-size: .42em; font-weight: 500; margin-left: 3px; }
+.stars { display: flex; gap: 3px; margin-top: 6px; }
+.stars svg { width: 20px; height: 20px; }
+.stars path { fill: none; stroke: var(--ink-soft); stroke-width: 1.6; stroke-linejoin: round; }
+.stars .on path { fill: var(--berry); stroke: var(--berry); }
+.stars-note { font-size: 11px; color: var(--ink-soft); margin-top: 3px; }
+.meters { display: grid; gap: 7px; width: min(170px, 42vw); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; backdrop-filter: blur(6px); }
+.meter .top { display: flex; justify-content: space-between; align-items: baseline; }
+.meter .val { font-family: var(--font-display); font-size: 12px; font-variant-numeric: tabular-nums; }
+.bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 3px; }
+.bar i { display: block; height: 100%; width: 0; background: var(--mint); border-radius: 3px; transition: width .12s linear, background-color .2s; }
+.bar i.warn { background: #e2a33b; }
+.bar i.bad { background: var(--berry); }
+.bottom { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; }
+.src { pointer-events: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; display: grid; gap: 6px; min-width: 0; backdrop-filter: blur(6px); }
+.src .head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.chip { font-family: var(--font-display); font-size: 12px; padding: 2px 9px; border-radius: 999px; background: var(--ink); color: var(--sky-hi); }
+.chip.sensor { background: var(--mint); }
+.readout { font-size: 11px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+#spark { width: 150px; height: 38px; display: block; }
+.btns { display: flex; gap: 6px; flex-wrap: wrap; }
+button { font-family: var(--font-display); color: var(--ink); cursor: pointer; }
+button:focus-visible { outline: 3px solid var(--berry); outline-offset: 2px; }
+.small { font-size: 12px; padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); background: #fff; }
+#pour {
+  pointer-events: auto; flex: none;
+  width: clamp(96px, 26vw, 128px); aspect-ratio: 1; max-width: 100%;
+  border-radius: 50%; border: 0;
+  background: radial-gradient(circle at 35% 30%, #fff 0%, var(--cream) 45%, #f1dcae 100%);
+  box-shadow: 0 6px 0 #d9bf86, 0 10px 24px rgba(28, 51, 82, .22);
+  font-weight: 800; font-size: 17px; line-height: 1.25;
+  touch-action: none;
+  transition: transform .06s;
+}
+#pour.on { transform: translateY(5px); box-shadow: 0 1px 0 #d9bf86, 0 4px 12px rgba(28, 51, 82, .2); }
+#pour span { display: block; font-size: 11px; font-weight: 500; color: var(--ink-soft); }
+.overlay {
+  position: absolute; inset: 0; display: grid; place-items: center; pointer-events: auto;
+  background: rgba(207, 231, 243, .55);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px;
+}
+.card {
+  width: min(420px, 100%); background: #fff; border-radius: 20px; padding: 22px 22px 18px;
+  box-shadow: 0 18px 50px rgba(28, 51, 82, .2); display: grid; gap: 12px;
+}
+.card h1 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: 28px; text-wrap: balance; }
+.card h2 { margin: 0; font-family: var(--font-display); font-weight: 800; font-size: 24px; text-wrap: balance; }
+.card p { margin: 0; line-height: 1.7; font-size: 14px; color: var(--ink-soft); }
+.card ol { margin: 0; padding-left: 1.3em; line-height: 1.75; font-size: 14px; }
+.big { font-size: 16px; font-weight: 800; padding: 13px 16px; border-radius: 12px; border: 0; background: var(--mint); color: #fff; }
+.big.alt { background: #fff; color: var(--ink); border: 1.5px solid var(--ink); }
+.note { font-size: 12px !important; }
+.result-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.result-grid div { background: var(--sky-hi); border-radius: 10px; padding: 8px; text-align: center; }
+.result-grid b { display: block; font-family: var(--font-display); font-size: 20px; font-variant-numeric: tabular-nums; }
+.result-grid span { font-size: 11px; color: var(--ink-soft); }
+#toast {
+  position: absolute; left: 50%; top: 40%; transform: translateX(-50%);
+  width: min(360px, calc(100% - 32px)); background: var(--ink); color: var(--sky-hi);
+  padding: 10px 14px; border-radius: 10px; font-size: 13px; line-height: 1.6; text-align: center;
+  pointer-events: none; opacity: 0; transition: opacity .25s;
+}
+#toast.show { opacity: 1; }
+@media (max-width: 430px) {
+  #spark { width: 118px; }
+  .src .readout { font-size: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bar i, #pour, #toast { transition: none; }
+}
+</style>
+
+<div id="app">
+  <canvas id="stage"></canvas>
+  <div id="hud">
+    <div class="row">
+      <div class="score">
+        <div class="label">高さ（ふちから）</div>
+        <div class="height"><span id="h">0.0</span><small>cm</small></div>
+        <div class="stars" id="stars"></div>
+        <div class="stars-note">10cmごとに★ひとつ</div>
+      </div>
+      <div class="meters">
+        <div class="meter"><div class="top"><span class="label">傾き</span><span class="val" id="vRisk">0%</span></div><div class="bar"><i id="bRisk"></i></div></div>
+        <div class="meter"><div class="top"><span class="label">こぼれ</span><span class="val" id="vSpill">0%</span></div><div class="bar"><i id="bSpill"></i></div></div>
+        <div class="meter"><div class="top"><span class="label">タンク残り</span><span class="val" id="vTank">100%</span></div><div class="bar"><i id="bTank"></i></div></div>
+      </div>
+    </div>
+    <div class="bottom">
+      <div class="src">
+        <div class="head"><span class="chip" id="chip">デモ</span><span class="readout" id="readout">—</span></div>
+        <canvas id="spark" width="300" height="76"></canvas>
+        <div class="btns">
+          <button class="small" id="calib" type="button" hidden>水平リセット</button>
+          <button class="small" id="finish" type="button">完成！</button>
+          <button class="small" id="menu" type="button">最初から</button>
+        </div>
+      </div>
+      <button id="pour" type="button">押して<br>出す<span>長押し</span></button>
+    </div>
+  </div>
+
+  <div class="overlay" id="start">
+    <div class="card">
+      <h1>センサー巻きソフト</h1>
+      <p>コーンを動かして、上から出てくるクリームをらせん状に積みます。傾きすぎると倒れ、外に出すとこぼれます。</p>
+      <ol>
+        <li>スマホを水平に持つ（このとき「まっすぐ」を記録）</li>
+        <li>スマホを傾けるとコーンが動く</li>
+        <li>画面を長押ししている間クリームが出る</li>
+      </ol>
+      <button class="big" id="goSensor" type="button">スマホの傾きで遊ぶ</button>
+      <button class="big alt" id="goPointer" type="button">指・マウスで遊ぶ</button>
+      <p class="note">PC：マウス位置でコーン移動、クリック／スペースで出す。スマホ指操作：ドラッグで移動＋右下ボタン。埋め込み表示などでセンサー値が届かないときは自動で指操作に切り替わります。</p>
+    </div>
+  </div>
+
+  <div class="overlay" id="result" hidden>
+    <div class="card">
+      <h2 id="rTitle">完成！</h2>
+      <div class="stars" id="rStars"></div>
+      <div class="result-grid">
+        <div><b id="rH">0.0</b><span>高さ cm</span></div>
+        <div><b id="rSp">0%</b><span>こぼれ</span></div>
+        <div><b id="rC">0</b><span>まっすぐ度</span></div>
+      </div>
+      <p id="rMsg"></p>
+      <button class="big" id="again" type="button">もう一回</button>
+      <button class="big alt" id="toMenu" type="button">操作方法を変える</button>
+    </div>
+  </div>
+  <div id="toast" role="status"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(() => {
+  // ---- constants (scene units = cm) ----
+  const R_RIM = 3.2, R = 1.0, K = 0.86, CONTACT = 2 * R * K, CONE_H = 11;
+  const CAP = 2200, RATE = 36, SPILL_MAX = 80, MAXR = 7.5;
+  const $ = (s) => document.querySelector(s);
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+  const state = {
+    mode: 'demo', running: false, over: false, pouring: false,
+    target: { x: 0, z: 0 }, cone: { x: 0, z: 0 },
+    emitAcc: 0, spill: 0, top: 0, risk: 0, lean: 0, falling: -1, fallDir: { x: 1, z: 0 },
+    b0: 0, g0: 0, calib: false, raw: null, lastSensor: 0, hzCount: 0, hz: 0,
+    sNow: 0, tNow: 0, lastLX: 0, lastLZ: 0, demoT: 0, demoPause: 0, keys: {},
+  };
+  const pts = [];
+  const grid = new Map();
+  let sumX = 0, sumZ = 0;
+
+  // ---- three.js setup ----
+  const canvas = $('#stage');
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 500);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0xc2d0d9, 0.65));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.15); sun.position.set(14, 26, 18); scene.add(sun);
+  const rimLight = new THREE.DirectionalLight(0xffe7c2, 0.35); rimLight.position.set(-18, 8, -10); scene.add(rimLight);
+
+  function waffleTexture() {
+    const c = document.createElement('canvas'); c.width = c.height = 256;
+    const g = c.getContext('2d');
+    g.fillStyle = '#d9a35f'; g.fillRect(0, 0, 256, 256);
+    g.strokeStyle = '#b97e3c'; g.lineWidth = 7;
+    for (let i = -256; i < 512; i += 40) {
+      g.beginPath(); g.moveTo(i, 0); g.lineTo(i + 256, 256); g.stroke();
+      g.beginPath(); g.moveTo(i + 256, 0); g.lineTo(i, 256); g.stroke();
+    }
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(3, 2);
+    t.encoding = THREE.sRGBEncoding;
+    return t;
+  }
+  const coneMat = new THREE.MeshStandardMaterial({ map: waffleTexture(), roughness: 0.85, side: THREE.DoubleSide });
+  const creamMat = new THREE.MeshStandardMaterial({ color: 0xf2dfb8, roughness: 0.48, metalness: 0 });
+  const plainCream = () => creamMat.clone();
+
+  const coneGroup = new THREE.Group(); scene.add(coneGroup);
+  const cone = new THREE.Mesh(new THREE.CylinderGeometry(R_RIM, 0.25, CONE_H, 40, 1, true), coneMat);
+  cone.position.y = -CONE_H / 2; coneGroup.add(cone);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(R_RIM, 0.38, 12, 48), coneMat);
+  rim.rotation.x = Math.PI / 2; coneGroup.add(rim);
+  const cap = new THREE.Mesh(new THREE.SphereGeometry(R_RIM * 0.96, 32, 12, 0, Math.PI * 2, 0, Math.PI / 2), plainCream());
+  cap.scale.y = 0.22; coneGroup.add(cap);
+
+  const tiltGroup = new THREE.Group(); coneGroup.add(tiltGroup);
+  // ---- cream rope: one continuous tube with a star-shaped nozzle profile ----
+  // Physics samples are smoothed and resampled into evenly spaced rings, and each ring's frame is
+  // parallel-transported from the previous one, so the tube bends smoothly instead of kinking.
+  const SEG = 48, RIDGES = 8, RING_CAP = CAP * 4, STEP = 0.33 * R;
+  const rope = (() => {
+    const pos = new Float32Array(RING_CAP * SEG * 3), nor = new Float32Array(RING_CAP * SEG * 3);
+    const idx = new Uint32Array(RING_CAP * SEG * 6);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setIndex(new THREE.BufferAttribute(idx, 1).setUsage(THREE.DynamicDrawUsage));
+    geo.setDrawRange(0, 0);
+    const mat = creamMat.clone(); mat.side = THREE.DoubleSide;
+    const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false;
+    return { pos, nor, idx, geo, mesh, nIdx: 0, rings: 0, broken: true, dirty: false,
+      c: new THREE.Vector3(), T: new THREE.Vector3(1, 0, 0), N: new THREE.Vector3(0, 0, 1), hasT: false, segLen: 0, len: 0, rest: 0 };
+  })();
+  tiltGroup.add(rope.mesh);
+  // a soft blob rounds off the open end of each rope piece
+  const caps = new THREE.InstancedMesh(new THREE.SphereGeometry(R * 0.82, 24, 16), plainCream(), CAP);
+  caps.count = 0; caps.frustumCulled = false; tiltGroup.add(caps);
+  const _B = new THREE.Vector3(), _t = new THREE.Vector3(), _n = new THREE.Vector3(), _p = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0);
+  // one ring of the star profile into pos/nor at ring index `ring`
+  function starRing(P, Nn, ring, p, T, N, scale, tw) {
+    _B.crossVectors(T, N).normalize();
+    const base = ring * SEG * 3, A = 0.13;
+    for (let j = 0; j < SEG; j++) {
+      const th = j / SEG * Math.PI * 2, c = Math.cos(th), sn = Math.sin(th);
+      const w = 1 + A * Math.cos(RIDGES * th + tw);
+      const r = R * 0.92 * scale * w;
+      const k = -A * RIDGES * Math.sin(RIDGES * th + tw) / w;
+      const i = base + j * 3;
+      P[i] = p.x + (N.x * c + _B.x * sn) * r;
+      P[i + 1] = p.y + (N.y * c + _B.y * sn) * r;
+      P[i + 2] = p.z + (N.z * c + _B.z * sn) * r;
+      const nc = c + k * sn, ns = sn - k * c;
+      const nx = N.x * nc + _B.x * ns, ny = N.y * nc + _B.y * ns, nz = N.z * nc + _B.z * ns;
+      const L = Math.hypot(nx, ny, nz) || 1;
+      Nn[i] = nx / L; Nn[i + 1] = ny / L; Nn[i + 2] = nz / L;
+    }
+  }
+  function writeRing(p, scale) {
+    const ring = rope.rings, N = rope.N, T = rope.T;
+    _B.crossVectors(T, N).normalize();
+    const tw = rope.len * 0.55, base = ring * SEG * 3, A = 0.13;
+    for (let j = 0; j < SEG; j++) {
+      const th = j / SEG * Math.PI * 2, c = Math.cos(th), sn = Math.sin(th);
+      const w = 1 + A * Math.cos(RIDGES * th + tw);
+      const r = R * 0.92 * scale * w;
+      const k = -A * RIDGES * Math.sin(RIDGES * th + tw) / w; // r'/r
+      const i = base + j * 3;
+      rope.pos[i] = p.x + (N.x * c + _B.x * sn) * r;
+      rope.pos[i + 1] = p.y + (N.y * c + _B.y * sn) * r;
+      rope.pos[i + 2] = p.z + (N.z * c + _B.z * sn) * r;
+      // outward normal of the star profile: radial minus (r'/r) * tangential
+      const nc = c + k * sn, ns = sn - k * c;
+      const nx = N.x * nc + _B.x * ns, ny = N.y * nc + _B.y * ns, nz = N.z * nc + _B.z * ns;
+      const L = Math.hypot(nx, ny, nz) || 1;
+      rope.nor[i] = nx / L; rope.nor[i + 1] = ny / L; rope.nor[i + 2] = nz / L;
+    }
+    if (ring > 0 && !rope.newSeg) {
+      const a0 = (ring - 1) * SEG, a1 = ring * SEG;
+      for (let j = 0; j < SEG; j++) {
+        const j2 = (j + 1) % SEG, o = rope.nIdx;
+        rope.idx[o] = a0 + j; rope.idx[o + 1] = a1 + j; rope.idx[o + 2] = a0 + j2;
+        rope.idx[o + 3] = a0 + j2; rope.idx[o + 4] = a1 + j; rope.idx[o + 5] = a1 + j2;
+        rope.nIdx += 6;
+      }
+    }
+    rope.newSeg = false; rope.rings++;
+  }
+  function setCap(i, p) {
+    m4.compose(v3.set(p.x, p.y, p.z), q.set(0, 0, 0, 1), s3.set(1, 0.85, 1));
+    caps.setMatrixAt(i, m4);
+  }
+  function ropeAdd(p) {
+    _p.set(p.x, p.y, p.z);
+    if (rope.broken || _p.distanceTo(rope.c) > 5 * R) {
+      rope.c.copy(_p); rope.broken = false; rope.hasT = false; rope.segLen = 0; rope.rest = 0; rope.newSeg = true;
+      caps.count++; setCap(caps.count - 1, _p); rope.dirty = true;
+      return;
+    }
+    // ease the rope centre toward the new sample (removes jitter), then lay rings every STEP
+    const target = _n.set(rope.c.x + (_p.x - rope.c.x) * 0.45, rope.c.y + (_p.y - rope.c.y) * 0.22, rope.c.z + (_p.z - rope.c.z) * 0.45);
+    let d = target.distanceTo(rope.c);
+    if (d < 1e-3) return;
+    _t.copy(target).sub(rope.c).divideScalar(d);
+    if (!rope.hasT) {
+      rope.T.copy(_t); rope.N.crossVectors(_t, UP);
+      if (rope.N.lengthSq() < 1e-4) rope.N.set(1, 0, 0);
+      rope.N.normalize(); rope.hasT = true;
+      writeRing(rope.c, 0.25);
+    }
+    let walked = -rope.rest;
+    const from = _B.copy(rope.c); // reuse temp: segment start
+    const startX = from.x, startY = from.y, startZ = from.z;
+    while (walked + STEP <= d && rope.rings < RING_CAP) {
+      walked += STEP; rope.segLen += STEP; rope.len += STEP;
+      rope.T.lerp(_t, 0.35).normalize();
+      // parallel transport: keep N perpendicular to T with the least rotation
+      rope.N.addScaledVector(rope.T, -rope.N.dot(rope.T)).normalize();
+      const f = walked / d;
+      const pt = v3.set(startX + (target.x - startX) * f, startY + (target.y - startY) * f, startZ + (target.z - startZ) * f).clone();
+      writeRing(pt, Math.min(1, 0.25 + rope.segLen / (1.4 * R) * 0.75));
+    }
+    rope.rest = d - walked;
+    rope.c.copy(target);
+    setCap(caps.count - 1, rope.c);
+    rope.dirty = true;
+  }
+  function ropeFlush() {
+    if (!rope.dirty) return;
+    const g = rope.geo;
+    g.attributes.position.needsUpdate = true; g.attributes.normal.needsUpdate = true; g.index.needsUpdate = true;
+    g.setDrawRange(0, rope.nIdx); caps.instanceMatrix.needsUpdate = true; rope.dirty = false;
+  }
+  function ropeReset() {
+    Object.assign(rope, { nIdx: 0, rings: 0, broken: true, dirty: true, hasT: false, segLen: 0, len: 0, rest: 0 });
+    caps.count = 0;
+  }
+
+  // falling drops (spills)
+  const DROP_N = 160;
+  const drops = new THREE.InstancedMesh(new THREE.SphereGeometry(R * 0.9, 12, 8), plainCream(), DROP_N);
+  drops.count = DROP_N; drops.frustumCulled = false; drops.visible = false; scene.add(drops);
+  const dropState = Array.from({ length: DROP_N }, () => ({ live: false, x: 0, y: -999, z: 0, vx: 0, vy: 0, vz: 0 }));
+  let dropNext = 0;
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v3 = new THREE.Vector3(), s3 = new THREE.Vector3();
+  const hide = new THREE.Matrix4().makeScale(0, 0, 0);
+  for (let i = 0; i < DROP_N; i++) drops.setMatrixAt(i, hide);
+
+  // nozzle + stream
+  const metal = new THREE.MeshStandardMaterial({ color: 0xc9d3dc, roughness: 0.3, metalness: 0.8 });
+  const nozzle = new THREE.Group(); scene.add(nozzle);
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(2.4, 2.4, 7, 32), metal); body.position.y = 4.9; nozzle.add(body);
+  const tip = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.05, 1.4, 8), metal); tip.position.y = 0.7; nozzle.add(tip);
+  // falling cream: a short star-profile tube along a bending curve, rebuilt every frame
+  const SR = 40;
+  const stream = (() => {
+    const pos = new Float32Array(SR * SEG * 3), nor = new Float32Array(SR * SEG * 3);
+    const idx = [];
+    for (let r = 0; r < SR - 1; r++) for (let j = 0; j < SEG; j++) {
+      const a0 = r * SEG, a1 = (r + 1) * SEG, j2 = (j + 1) % SEG;
+      idx.push(a0 + j, a1 + j, a0 + j2, a0 + j2, a1 + j, a1 + j2);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3).setUsage(THREE.DynamicDrawUsage));
+    geo.setIndex(idx);
+    const mat = creamMat.clone(); mat.side = THREE.DoubleSide;
+    const mesh = new THREE.Mesh(geo, mat); mesh.frustumCulled = false; mesh.visible = false;
+    scene.add(mesh);
+    return { pos, nor, geo, mesh, foot: new THREE.Vector3(), T: new THREE.Vector3(), N: new THREE.Vector3(), p: new THREE.Vector3() };
+  })();
+  const _c0 = new THREE.Vector3(), _c1 = new THREE.Vector3(), _c2 = new THREE.Vector3(), _c3 = new THREE.Vector3();
+  function bez(t, out) {
+    const u = 1 - t;
+    return out.set(0, 0, 0).addScaledVector(_c0, u * u * u).addScaledVector(_c1, 3 * u * u * t)
+      .addScaledVector(_c2, 3 * u * t * t).addScaledVector(_c3, t * t * t);
+  }
+  function updateStream(dt, show) {
+    stream.mesh.visible = show;
+    if (!show) { stream.hidden = true; return; }
+    const spilling = state.tNow - (state.spillT || -9) < 0.25;
+    // where the falling cream meets the rope (world space), or far below when it misses the cone
+    const target = spilling
+      ? _c3.set(0, -40, 0)
+      : _c3.set(coneGroup.position.x + rope.c.x, Math.max(rope.c.y, 0), coneGroup.position.z + rope.c.z);
+    if (stream.hidden) { stream.foot.copy(target); stream.hidden = false; }
+    stream.foot.lerp(target, 1 - Math.exp(-dt * (spilling ? 4 : 14)));
+    _c3.copy(stream.foot);
+    _c0.set(0, nozY, 0);
+    const L = Math.max(0.6, _c0.y - _c3.y);
+    _c1.set(0, _c0.y - L * 0.45, 0);
+    // near the bottom the stream bends to lie along the rope it is laying down
+    const lay = spilling ? 0 : Math.min(L * 0.35, 1.6);
+    _c2.set(_c3.x - rope.T.x * lay, _c3.y + L * 0.3, _c3.z - rope.T.z * lay);
+    const time = state.tNow;
+    stream.N.set(1, 0, 0);
+    for (let r = 0; r < SR; r++) {
+      const t = r / (SR - 1);
+      bez(t, stream.p);
+      bez(Math.min(1, t + 0.01), _n).sub(bez(Math.max(0, t - 0.01), v3)).normalize();
+      stream.T.copy(_n);
+      stream.N.addScaledVector(stream.T, -stream.N.dot(stream.T)).normalize();
+      if (stream.N.lengthSq() < 0.5) stream.N.set(0, 0, 1);
+      // thin where it leaves the nozzle, swelling slightly as it slows near the bottom; ridges drift downward
+      const scale = 0.72 + 0.22 * t + 0.03 * Math.sin(time * 9 + t * 14);
+      starRing(stream.pos, stream.nor, r, stream.p, stream.T, stream.N, scale, t * L * 0.55 - time * 3);
+    }
+    stream.geo.attributes.position.needsUpdate = true; stream.geo.attributes.normal.needsUpdate = true;
+  }
+
+  // ---- cream physics (cone-local, untilted) ----
+  const cell = (v) => Math.floor(v / CONTACT);
+  function gridAdd(p) {
+    const k = cell(p.x) + ',' + cell(p.z);
+    let a = grid.get(k); if (!a) grid.set(k, a = []); a.push(p);
+  }
+  function near(x, z, fn) {
+    const ix = cell(x), iz = cell(z);
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+      const c = grid.get((ix + a) + ',' + (iz + b)); if (c) for (let i = 0; i < c.length; i++) fn(c[i]);
+    }
+  }
+  // Height where a new blob's centre would rest at (x,z). The freshest bit of rope is ignored,
+  // so a moving rope lies down beside itself instead of climbing onto its own tail.
+  function support(x, z) {
+    let y = -Infinity;
+    if (x * x + z * z <= (R_RIM + 0.15) ** 2) y = R * 0.55;
+    const c2 = CONTACT * CONTACT;
+    near(x, z, (p) => {
+      if (state.sNow - p.s < 2.2 * R && state.tNow - p.t < 0.6) return;
+      const dx = p.x - x, dz = p.z - z, d2 = dx * dx + dz * dz;
+      if (d2 < c2) { const h = p.y + Math.sqrt(c2 - d2); if (h > y) y = h; }
+    });
+    return y;
+  }
+  function emit() {
+    let x = -state.cone.x, z = -state.cone.z;
+    state.sNow += Math.hypot(x - state.lastLX, z - state.lastLZ);
+    state.lastLX = x; state.lastLZ = z;
+    let y = support(x, z);
+    // slump: cream perched much higher than its surroundings sinks and eases downhill a little
+    if (y > -Infinity) {
+      let bestA = 0, bestY = Infinity;
+      for (let k = 0; k < 8; k++) {
+        const a = k * Math.PI / 4;
+        let ny = support(x + Math.cos(a) * 1.8 * R, z + Math.sin(a) * 1.8 * R);
+        if (ny === -Infinity) ny = y - 1.5 * R;
+        if (ny < bestY) { bestY = ny; bestA = a; }
+      }
+      if (y - bestY > 1.6 * R) {
+        x += Math.cos(bestA) * 0.35 * R; z += Math.sin(bestA) * 0.35 * R;
+        const y2 = support(x, z);
+        y = y2 === -Infinity ? y2 : Math.min(y2, bestY + 1.6 * R);
+      }
+    }
+    if (y === -Infinity) { spill(x, z); return; }
+    const p = { x, y, z, s: state.sNow, t: state.tNow };
+    pts.push(p); gridAdd(p); sumX += x; sumZ += z;
+    ropeAdd(p);
+    state.top = Math.max(state.top, y + R * 0.8);
+    state.landY = y;
+    if (pts.length % 8 === 0) computeRisk();
+  }
+  function spill(x, z) {
+    state.spill++; rope.broken = true; state.spillT = state.tNow;
+    const d = dropState[dropNext]; dropNext = (dropNext + 1) % DROP_N;
+    const len = Math.hypot(x, z) || 1;
+    Object.assign(d, { live: true, x: state.cone.x + x, y: Math.max(state.top, 0.5), z: state.cone.z + z,
+      vx: x / len * 6, vy: 2, vz: z / len * 6 });
+  }
+  function computeRisk() {
+    const n = pts.length; if (n < 30) { state.risk = 0; return; }
+    const offAll = Math.hypot(sumX / n, sumZ / n);
+    const half = state.top / 2;
+    let ux = 0, uz = 0, un = 0, lx = 0, lz = 0, ln = 0;
+    for (const p of pts) { if (p.y > half) { ux += p.x; uz += p.z; un++; } else { lx += p.x; lz += p.z; ln++; } }
+    let lean = 0, dx = sumX / n, dz = sumZ / n;
+    if (un > 10 && ln > 10) {
+      const ex = ux / un - lx / ln, ez = uz / un - lz / ln; lean = Math.hypot(ex, ez);
+      if (lean * 0.45 > offAll) { dx = ex; dz = ez; }
+    }
+    const tol = R_RIM * 0.5 / (1 + state.top / 22);
+    state.risk = state.top < 5 ? 0 : Math.max(offAll, lean * 0.45) / tol;
+    const L = Math.hypot(dx, dz) || 1; state.fallDir = { x: dx / L, z: dz / L };
+  }
+  function resetCream() {
+    pts.length = 0; grid.clear(); sumX = sumZ = 0;
+    ropeReset();
+    Object.assign(state, { spill: 0, top: 0, risk: 0, falling: -1, emitAcc: 0, sNow: 0, tNow: 0, landY: 0, over: false });
+    state.target = { x: 0, z: 0 }; state.cone = { x: 0, z: 0 };
+    coneGroup.position.set(0, 0, 0); tiltGroup.quaternion.identity(); tiltGroup.position.set(0, 0, 0);
+  }
+
+  // ---- input ----
+  const chip = $('#chip'), readout = $('#readout'), pourBtn = $('#pour');
+  const history = [];
+  function setMode(m) {
+    state.mode = m;
+    chip.textContent = m === 'sensor' ? 'センサー' : m === 'pointer' ? '指・マウス' : 'デモ';
+    chip.classList.toggle('sensor', m === 'sensor');
+    $('#calib').hidden = m !== 'sensor';
+  }
+  function onOrientation(e) {
+    if (e.beta == null || e.gamma == null) return;
+    state.lastSensor = performance.now(); state.hzCount++;
+    state.raw = { b: e.beta, g: e.gamma };
+    if (state.calib) { state.b0 = e.beta; state.g0 = e.gamma; state.calib = false; }
+    if (state.mode !== 'sensor') return;
+    let x = (e.gamma - state.g0) / 22 * 5.5, z = (e.beta - state.b0) / 22 * 5.5;
+    const r = Math.hypot(x, z); if (r > MAXR) { x *= MAXR / r; z *= MAXR / r; }
+    state.target.x = x; state.target.z = z;
+  }
+  let toastTimer = 0;
+  function toast(msg) {
+    const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('show'), 3800);
+  }
+  async function startSensor() {
+    try {
+      if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+        const r = await DeviceOrientationEvent.requestPermission();
+        if (r !== 'granted') throw new Error('denied');
+      }
+    } catch (err) {
+      startPointer('センサーの使用が許可されなかったので、指・マウス操作に切り替えました。');
+      return;
+    }
+    window.addEventListener('deviceorientation', onOrientation);
+    state.lastSensor = 0; state.calib = true;
+    setMode('sensor'); startGame();
+    setTimeout(() => {
+      if (state.mode === 'sensor' && !state.lastSensor) {
+        startPointer('センサー値が届きませんでした（PCや埋め込み表示では止められることがあります）。指・マウス操作に切り替えました。');
+      }
+    }, 1800);
+  }
+  function startPointer(msg) { setMode('pointer'); startGame(); if (msg) toast(msg); }
+  function startGame() {
+    $('#start').hidden = true; $('#result').hidden = true;
+    resetCream(); state.running = true; state.pouring = false;
+  }
+  $('#goSensor').addEventListener('click', startSensor);
+  $('#goPointer').addEventListener('click', () => startPointer());
+  $('#calib').addEventListener('click', () => { state.calib = true; toast('今の持ち方を「まっすぐ」にしました。'); });
+  $('#finish').addEventListener('click', () => { if (state.running && !state.over) finish('done'); });
+  $('#menu').addEventListener('click', toMenu);
+  $('#again').addEventListener('click', () => (state.mode === 'sensor' ? (state.calib = true, startGame()) : startGame()));
+  $('#toMenu').addEventListener('click', toMenu);
+  function toMenu() {
+    window.removeEventListener('deviceorientation', onOrientation);
+    state.running = false; state.pouring = false; setMode('demo');
+    resetCream(); state.demoT = 0; state.demoPause = 0;
+    $('#result').hidden = true; $('#start').hidden = false;
+  }
+
+  const pourOn = (e) => { if (!state.running || state.over) return; state.pouring = true; pourBtn.classList.add('on'); if (e && e.pointerId != null && e.currentTarget.setPointerCapture) e.currentTarget.setPointerCapture(e.pointerId); };
+  const pourOff = () => { if (state.mode !== 'demo') state.pouring = false; pourBtn.classList.remove('on'); };
+  pourBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); pourOn(e); });
+  pourBtn.addEventListener('pointerup', pourOff);
+  pourBtn.addEventListener('pointercancel', pourOff);
+  pourBtn.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  let drag = null;
+  canvas.addEventListener('pointerdown', (e) => {
+    if (!state.running) return;
+    if (state.mode === 'sensor' || e.pointerType === 'mouse') pourOn(e);
+    if (state.mode === 'pointer' && e.pointerType !== 'mouse') drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
+  });
+  canvas.addEventListener('pointermove', (e) => {
+    if (state.mode !== 'pointer') return;
+    const s = Math.min(innerWidth, innerHeight);
+    if (e.pointerType === 'mouse') {
+      let x = (e.clientX - innerWidth / 2) / (s * 0.32) * 5, z = (e.clientY - innerHeight * 0.55) / (s * 0.32) * 5;
+      const r = Math.hypot(x, z); if (r > MAXR) { x *= MAXR / r; z *= MAXR / r; }
+      state.target.x = x; state.target.z = z;
+    } else if (drag && drag.id === e.pointerId) {
+      state.target.x = clamp(state.target.x + (e.clientX - drag.x) / s * 14, -MAXR, MAXR);
+      state.target.z = clamp(state.target.z + (e.clientY - drag.y) / s * 14, -MAXR, MAXR);
+      drag.x = e.clientX; drag.y = e.clientY;
+    }
+  });
+  const endCanvas = (e) => { if (drag && drag.id === e.pointerId) drag = null; if (e.pointerType === 'mouse' || state.mode === 'sensor') pourOff(); };
+  canvas.addEventListener('pointerup', endCanvas);
+  canvas.addEventListener('pointercancel', endCanvas);
+  addEventListener('keydown', (e) => {
+    if (e.code === 'Space' && state.running) { e.preventDefault(); pourOn(); }
+    state.keys[e.code] = true;
+  });
+  addEventListener('keyup', (e) => { if (e.code === 'Space') pourOff(); state.keys[e.code] = false; });
+
+  // ---- game flow ----
+  function finish(kind) {
+    state.over = true; state.pouring = false; pourBtn.classList.remove('on');
+    const h = state.top, n = pts.length;
+    const stars = clamp(Math.floor(h / 10), 0, 5);
+    const spillRate = state.spill / Math.max(1, n + state.spill);
+    const center = Math.round(100 * clamp(1 - (n ? Math.hypot(sumX / n, sumZ / n) : 0) / 1.6, 0, 1));
+    const titles = { done: '完成！', fell: '倒れちゃった…', spill: 'こぼれすぎ…', empty: 'タンクが空になりました' };
+    const msgs = [
+      'まだ小さめ。コーンを小さく回しながら、少しずつ内側に寄せると高く積めます。',
+      'ふつうサイズのソフトクリーム。次は20cmを目指してみてください。',
+      'ご褒美サイズ。らせんがきれいに積めています。',
+      '職人の巻き。ここまで高いと少しの傾きでも倒れます。',
+    ];
+    $('#rTitle').textContent = titles[kind];
+    $('#rH').textContent = (kind === 'fell' ? 0 : h).toFixed(1);
+    $('#rSp').textContent = Math.round(spillRate * 100) + '%';
+    $('#rC').textContent = center;
+    renderStars($('#rStars'), kind === 'fell' ? 0 : stars);
+    $('#rMsg').textContent = kind === 'fell'
+      ? 'クリームの重心がコーンの中心から外れると傾きます。右上の「傾き」が赤くなる前に反対側へ巻いて戻しましょう。'
+      : msgs[Math.min(stars, 3)];
+    setTimeout(() => { $('#result').hidden = false; }, kind === 'fell' ? 1300 : 350);
+  }
+  const STAR = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2.8l2.7 5.9 6.4.7-4.8 4.3 1.4 6.3L12 16.8 6.3 20l1.4-6.3L2.9 9.4l6.4-.7z"/></svg>';
+  function renderStars(el, n) {
+    el.innerHTML = ''; for (let i = 0; i < 5; i++) { const s = document.createElement('span'); s.innerHTML = STAR; s.firstChild.classList.toggle('on', i < n); el.appendChild(s.firstChild); }
+    el.setAttribute('aria-label', '★' + n);
+  }
+  renderStars($('#stars'), 0);
+
+  // ---- per-frame update ----
+  let lastStars = -1;
+  function demoInput(dt) {
+    if (state.demoPause > 0) {
+      state.demoPause -= dt; state.pouring = false;
+      if (state.demoPause <= 0) { resetCream(); state.demoT = 0; }
+      return;
+    }
+    state.demoT += dt;
+    const t = state.demoT, r = Math.max(0.15, 2.55 - t * 0.3), a = t * 5.4;
+    state.target.x = Math.cos(a) * r; state.target.z = Math.sin(a) * r;
+    state.pouring = true;
+    if (r <= 0.15 && t > 9.2) state.demoPause = 2.5;
+  }
+  function update(dt, now) {
+    state.tNow = now / 1000;
+    if (state.mode === 'demo') demoInput(dt);
+    if (state.mode === 'pointer') {
+      const kx = (state.keys.ArrowRight || state.keys.KeyD ? 1 : 0) - (state.keys.ArrowLeft || state.keys.KeyA ? 1 : 0);
+      const kz = (state.keys.ArrowDown || state.keys.KeyS ? 1 : 0) - (state.keys.ArrowUp || state.keys.KeyW ? 1 : 0);
+      if (kx || kz) { state.target.x = clamp(state.target.x + kx * dt * 8, -MAXR, MAXR); state.target.z = clamp(state.target.z + kz * dt * 8, -MAXR, MAXR); }
+    }
+    // smoothing = a little deliberate lag, which also hides sensor jitter
+    const f = 1 - Math.exp(-dt * 11);
+    state.cone.x += (state.target.x - state.cone.x) * f;
+    state.cone.z += (state.target.z - state.cone.z) * f;
+
+    if (state.falling >= 0) {
+      state.falling = Math.min(1, state.falling + dt / 1.1);
+    } else if ((state.running && !state.over) || state.mode === 'demo') {
+      if (state.pouring && pts.length < CAP) {
+        state.emitAcc += dt * RATE;
+        while (state.emitAcc >= 1) { state.emitAcc -= 1; emit(); }
+      }
+      if (state.mode !== 'demo') {
+        if (state.risk > 1) { state.falling = 0; finish('fell'); }
+        else if (state.spill > SPILL_MAX) finish('spill');
+        else if (pts.length >= CAP) finish('empty');
+      }
+    }
+    // drops
+    for (let i = 0; i < DROP_N; i++) {
+      const d = dropState[i]; if (!d.live) continue;
+      d.vy -= 60 * dt; d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
+      if (d.y < -60) { d.live = false; drops.setMatrixAt(i, hide); continue; }
+      drops.setMatrixAt(i, m4.makeTranslation(d.x, d.y, d.z));
+    }
+    drops.instanceMatrix.needsUpdate = true;
+  }
+
+  let camY = 2, nozY = 9;
+  function draw(dt) {
+    coneGroup.position.set(state.cone.x, 0, state.cone.z);
+    const lean = Math.min(state.risk, 1) ** 2 * 0.17;
+    const fall = state.falling >= 0 ? (state.falling ** 2) * 1.45 : 0;
+    const ax = new THREE.Vector3(state.fallDir.z, 0, -state.fallDir.x);
+    if (ax.lengthSq() > 0) tiltGroup.quaternion.setFromAxisAngle(ax.normalize(), lean + fall);
+    if (state.falling >= 0) tiltGroup.position.y = -(state.falling ** 2) * 6;
+
+    const k = 1 - Math.exp(-dt * 3);
+    camY += (state.top * 0.55 + 1 - camY) * k;
+    nozY += (Math.max(state.top, 1.5) + 7.5 - nozY) * k;
+    nozzle.position.set(0, nozY, 0);
+    const portrait = innerWidth / innerHeight < 0.8;
+    camera.fov = portrait ? 52 : 40;
+    const dist = (portrait ? 44 : 36) + state.top * 0.55;
+    camera.position.set(0, camY + 9, dist);
+    camera.lookAt(0, camY + 0.5, 0);
+    camera.updateProjectionMatrix();
+
+    const showStream = state.pouring && state.falling < 0 && !state.over && pts.length < CAP;
+    updateStream(dt, showStream);
+    ropeFlush();
+    renderer.render(scene, camera);
+  }
+
+  // ---- HUD ----
+  const spark = $('#spark'), sg = spark.getContext('2d');
+  function setBar(id, valId, v, text, invert) {
+    const el = $(id); el.style.width = Math.round(clamp(v, 0, 1) * 100) + '%';
+    const bad = invert ? v < 0.15 : v > 0.8, warn = invert ? v < 0.35 : v > 0.55;
+    el.classList.toggle('bad', bad); el.classList.toggle('warn', !bad && warn);
+    $(valId).textContent = text;
+  }
+  function hud() {
+    $('#h').textContent = state.top.toFixed(1);
+    const st = clamp(Math.floor(state.top / 10), 0, 5);
+    if (st !== lastStars) { renderStars($('#stars'), st); lastStars = st; }
+    setBar('#bRisk', '#vRisk', state.risk, Math.round(clamp(state.risk, 0, 1) * 100) + '%');
+    setBar('#bSpill', '#vSpill', state.spill / SPILL_MAX, Math.round(clamp(state.spill / SPILL_MAX, 0, 1) * 100) + '%');
+    const tank = 1 - pts.length / CAP;
+    setBar('#bTank', '#vTank', tank, Math.round(tank * 100) + '%', true);
+
+    let ix, iz;
+    if (state.mode === 'sensor' && state.raw) {
+      ix = state.raw.g - state.g0; iz = state.raw.b - state.b0;
+      readout.textContent = `γ ${ix.toFixed(1)}°  β ${iz.toFixed(1)}°  ${state.hz}Hz`;
+    } else {
+      ix = state.target.x * 4; iz = state.target.z * 4;
+      readout.textContent = `x ${state.cone.x.toFixed(1)}  z ${state.cone.z.toFixed(1)} cm`;
+    }
+    history.push([ix, iz]); if (history.length > 90) history.shift();
+    const W = spark.width, H = spark.height;
+    sg.clearRect(0, 0, W, H);
+    sg.strokeStyle = 'rgba(28,51,82,.15)'; sg.lineWidth = 2; sg.beginPath(); sg.moveTo(0, H / 2); sg.lineTo(W, H / 2); sg.stroke();
+    [['#23917f', 0], ['#d94f74', 1]].forEach(([col, j]) => {
+      sg.strokeStyle = col; sg.lineWidth = 3; sg.beginPath();
+      history.forEach((h, i) => { const x = i / 89 * W, y = H / 2 - clamp(h[j] / 30, -1, 1) * (H / 2 - 4); i ? sg.lineTo(x, y) : sg.moveTo(x, y); });
+      sg.stroke();
+    });
+  }
+  setInterval(() => { state.hz = state.hzCount; state.hzCount = 0; }, 1000);
+
+  function resize() {
+    const w = canvas.clientWidth || innerWidth, h = canvas.clientHeight || innerHeight;
+    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+  addEventListener('resize', resize); resize();
+
+  // Pre-run the demo so the very first frame already shows a swirl.
+  setMode('demo');
+  for (let i = 0, t = 0; i < 330; i++) { t += 1000 / 60; update(1 / 60, t); }
+  camY = state.top * 0.55 + 1; nozY = state.top + 7.5;
+  let prev = performance.now();
+  const timeShift = 330 * 1000 / 60 - prev;
+  function frame(now) {
+    const dt = Math.min(0.05, (now - prev) / 1000); prev = now;
+    update(dt, now + timeShift); draw(dt); hud();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
